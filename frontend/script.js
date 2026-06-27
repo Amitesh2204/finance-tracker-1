@@ -58,4 +58,7 @@ new Chart(trendCtx, {
     ]
   }
 });
+<<<<<<< HEAD
 
+=======
+>>>>>>> dd074c7 (pus to main repo)
