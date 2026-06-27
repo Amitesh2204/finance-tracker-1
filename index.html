@@ -3,8 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Personal Finance Tracker updated</title>
-  <h2 style="color:red">Dashboard code deployed correctly!</h2>
+  <title>Personal Finance Tracker</title>
   <link rel="icon" href="assets/favicon.ico">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -29,6 +28,10 @@
     <section class="funds card">
       <h2>Emergency Fund</h2>
       <p id="emergency">₹4,373 / ₹5,000 (87%)</p>
+      <div class="progress">
+        <div class="progress-bar" style="width:87%"></div>
+      </div>
+      <small>Coverage: 3 Months</small>
     </section>
 
     <section class="portfolio card">
@@ -39,12 +42,24 @@
     <section class="goals card">
       <h2>Goals</h2>
       <p>Short Term: ₹424 / ₹1,000</p>
+      <div class="progress"><div class="progress-bar" style="width:42%"></div></div>
       <p>Long Term: ₹5,500 / ₹15,000</p>
+      <div class="progress"><div class="progress-bar" style="width:37%"></div></div>
     </section>
 
     <section class="expenses card">
       <h2>Income vs Expense Trend</h2>
       <canvas id="trendChart"></canvas>
+      <div class="expense-summary">
+        <h3>Top 5 Monthly Expenses</h3>
+        <ul>
+          <li>House Rent: ₹497 (23%)</li>
+          <li>Travel: ₹196 (9%)</li>
+          <li>Groceries: ₹195 (9%)</li>
+          <li>Food & Drink: ₹157 (7%)</li>
+          <li>Car: ₹144 (7%)</li>
+        </ul>
+      </div>
     </section>
 
     <section class="input-form card">
@@ -66,4 +81,3 @@
   <script src="script.js"></script>
 </body>
 </html>
-

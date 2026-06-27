@@ -1,5 +1,26 @@
 let entries = [];
 
+// Initial values
+let balance = 10297;
+let networth = 60197;
+let emergencyFund = 4373;
+let emergencyTarget = 5000;
+let shortTermGoal = 424;
+let shortTermTarget = 1000;
+let longTermGoal = 5500;
+let longTermTarget = 15000;
+
+// Update UI function
+function updateUI() {
+  document.getElementById("balance").textContent = `₹${balance}`;
+  document.getElementById("networth").textContent = `₹${networth}`;
+  document.getElementById("emergency").textContent = `₹${emergencyFund} / ₹${emergencyTarget} (${Math.round((emergencyFund/emergencyTarget)*100)}%)`;
+  document.querySelector(".funds .progress-bar").style.width = `${(emergencyFund/emergencyTarget)*100}%`;
+
+  document.querySelector(".goals .progress-bar:nth-of-type(1)").style.width = `${(shortTermGoal/shortTermTarget)*100}%`;
+  document.querySelector(".goals .progress-bar:nth-of-type(2)").style.width = `${(longTermGoal/longTermTarget)*100}%`;
+}
+
 // Handle form submission
 document.getElementById("entryForm").addEventListener("submit", function(e) {
   e.preventDefault();
@@ -8,6 +29,16 @@ document.getElementById("entryForm").addEventListener("submit", function(e) {
   const amount = parseFloat(document.getElementById("amount").value);
 
   entries.push({ Date: date, Category: category, Amount: amount });
+
+  // Example logic: treat "Savings" category as adding to goals, others as expenses
+  if (category.toLowerCase().includes("saving")) {
+    shortTermGoal += amount;
+  } else {
+    balance -= amount;
+    emergencyFund -= amount * 0.1; // reduce emergency fund slightly
+  }
+
+  updateUI();
   alert("Entry added!");
 });
 
@@ -58,7 +89,6 @@ new Chart(trendCtx, {
     ]
   }
 });
-<<<<<<< HEAD
 
-=======
->>>>>>> dd074c7 (pus to main repo)
+// Initialize UI on load
+updateUI();
