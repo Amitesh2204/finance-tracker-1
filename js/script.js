@@ -7,55 +7,72 @@ let balance = 0;
 let savingTotal = 0;
 
 /* ================================
-   Merge Existing Excel Data
+   Add Saving Entry (with category list)
    ================================ */
-// Allow user to upload an existing Excel file and merge with current memory
-function importExcel(file) {
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    const data = new Uint8Array(e.target.result);
-    const workbook = XLSX.read(data, { type: "array" });
+function addSaving(date, category, amount) {
+  const monthYear = new Date(date).toLocaleString("default", { month: "long", year: "numeric" });
+  savings.push({ date, category, amount, monthYear });
 
-    // Assume first sheet contains finance data
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json(worksheet);
+  // Update totals
+  savingTotal = savings.reduce((sum, s) => sum + s.amount, 0);
+  balance += amount;
 
-    rows.forEach(row => {
-      if (row.Type === "Saving") {
-        savings.push({ date: row.Date, account: row.Account, amount: row.Amount });
-      } else if (row.Type === "Payment") {
-        payments.push({ date: row.Date, category: row.Category, amount: row.Amount });
-      }
-    });
-
-    // Recalculate totals
-    savingTotal = savings.reduce((sum, s) => sum + s.amount, 0);
-    balance = savingTotal - payments.reduce((sum, p) => sum + p.amount, 0);
-
-    updateOverview();
-    alert("Excel data imported and merged!");
-  };
-  reader.readAsArrayBuffer(file);
+  // Update UI
+  updateSavingTable();
+  updateOverview();
 }
 
 /* ================================
-   Export to Excel
+   Update Saving Table (month-wise)
+   ================================ */
+function updateSavingTable() {
+  const tableBody = document.getElementById("savingTableBody");
+  if (!tableBody) return;
+
+  tableBody.innerHTML = "";
+  savings.forEach(s => {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>${s.date}</td>
+      <td>${s.monthYear}</td>
+      <td>${s.category}</td>
+      <td>₹${s.amount}</td>
+    `;
+    tableBody.appendChild(row);
+  });
+}
+
+/* ================================
+   Export to Excel (month-wise sheets)
    ================================ */
 function exportExcel() {
-  // Flatten savings + payments into one sheet
-  const merged = [];
-
-  savings.forEach(s => {
-    merged.push({ Type: "Saving", Date: s.date, Account: s.account, Amount: s.amount });
-  });
-  payments.forEach(p => {
-    merged.push({ Type: "Payment", Date: p.date, Category: p.category, Amount: p.amount });
-  });
-
-  const worksheet = XLSX.utils.json_to_sheet(merged);
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Finance");
+
+  // Group savings by month-year
+  const grouped = {};
+  savings.forEach(s => {
+    grouped[s.monthYear] = grouped[s.monthYear] || [];
+    grouped[s.monthYear].push({
+      Date: s.date,
+      Category: s.category,
+      Amount: s.amount
+    });
+  });
+
+  // Create a worksheet per month-year
+  Object.keys(grouped).forEach(monthYear => {
+    const worksheet = XLSX.utils.json_to_sheet(grouped[monthYear]);
+    XLSX.utils.book_append_sheet(workbook, worksheet, monthYear);
+  });
+
+  // Add payments in a separate sheet
+  const paymentSheet = XLSX.utils.json_to_sheet(payments.map(p => ({
+    Date: p.date,
+    Category: p.category,
+    Amount: p.amount
+  })));
+  XLSX.utils.book_append_sheet(workbook, paymentSheet, "Payments");
+
   XLSX.writeFile(workbook, "finance-tracker.xlsx");
 }
 
@@ -89,16 +106,6 @@ function updateOverview() {
   }
 
   updateChart();
-}
-
-/* ================================
-   Add Saving Entry
-   ================================ */
-function addSaving(date, account, amount) {
-  savings.push({ date, account, amount });
-  savingTotal = savings.reduce((sum, s) => sum + s.amount, 0);
-  balance += amount;
-  updateOverview();
 }
 
 /* ================================
@@ -136,12 +143,12 @@ function updateChart() {
 
   const months = {};
   savings.forEach(s => {
-    const m = s.date.slice(0,7);
+    const m = s.monthYear;
     months[m] = months[m] || { income: 0, expense: 0 };
     months[m].income += s.amount;
   });
   payments.forEach(p => {
-    const m = p.date.slice(0,7);
+    const m = new Date(p.date).toLocaleString("default", { month: "long", year: "numeric" });
     months[m] = months[m] || { income: 0, expense: 0 };
     months[m].expense += p.amount;
   });
@@ -166,9 +173,9 @@ document.addEventListener("DOMContentLoaded", () => {
     savingForm.addEventListener("submit", e => {
       e.preventDefault();
       const date = document.getElementById("savingDate").value;
-      const account = document.getElementById("savingAccount").value;
+      const category = document.getElementById("savingCategory").value;
       const amount = parseFloat(document.getElementById("savingAmount").value);
-      addSaving(date, account, amount);
+      addSaving(date, category, amount);
       alert("Saving entry added!");
       savingForm.reset();
     });
@@ -185,14 +192,6 @@ document.addEventListener("DOMContentLoaded", () => {
       addPayment(date, category, amount);
       alert("Payment entry added!");
       paymentForm.reset();
-    });
-  }
-
-  // Excel import button (optional)
-  const importInput = document.getElementById("importExcel");
-  if (importInput) {
-    importInput.addEventListener("change", e => {
-      importExcel(e.target.files[0]);
     });
   }
 

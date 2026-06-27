@@ -21,14 +21,36 @@
       <header><h1>Add Savings</h1></header>
       <div class="card">
         <form id="savingForm">
-          <label>Date:</label>
-          <input type="date" id="savingDate" required>
-          <label>Account:</label>
-          <input type="text" id="savingAccount" placeholder="Account name" required>
-          <label>Amount (₹):</label>
-          <input type="number" id="savingAmount" required>
-          <button type="submit">Add Saving</button>
-        </form>
+        <label>Date:</label>
+        <input type="date" id="savingDate" required>
+        <label>Category:</label>
+        <select id="savingCategory" required>
+          <option>Mutual Fund</option>
+          <option>LIC</option>
+          <option>PPF</option>
+          <option>Sukanya</option>
+          <option>Bank</option>
+          <option>Other</option>
+        </select>
+        <label>Amount (₹):</label>
+        <input type="number" id="savingAmount" required>
+        <button type="submit">Add Saving</button>
+      </form>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Month-Year</th>
+            <th>Category</th>
+            <th>Amount</th>
+          </tr>
+        </thead>
+        <tbody id="savingTableBody"></tbody>
+      </table>
+
+      <button id="exportExcel">Download Excel</button>
+
       </div>
     </section>
   </div>
