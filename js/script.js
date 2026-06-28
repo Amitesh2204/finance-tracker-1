@@ -28,20 +28,28 @@ function saveToIndexedDB(storeName, entry) {
 }
 
 /* ================================
-   Sync Routine
+   Sync Routine (only runs if backend offline)
    ================================ */
 async function syncWithBackend() {
   try {
     const res = await fetch(`${API_BASE}/ping`);
-    if (!res.ok) return;
+    if (res.ok) {
+      console.log("Backend online, skipping sync");
+      return;   // exit the whole function
+    }
+  } catch {
+    console.log("Backend offline, attempting sync");
+  }
 
-    const syncStore = async (storeName, endpoint) => {
-      const tx = db.transaction(storeName, "readwrite");
-      tx.objectStore(storeName).openCursor().onsuccess = async e => {
-        const cursor = e.target.result;
-        if (cursor) {
-          const entry = cursor.value;
-          if (entry.syncPending) {
+  // only reach here if backend was offline
+  const syncStore = async (storeName, endpoint) => {
+    const tx = db.transaction(storeName, "readwrite");
+    tx.objectStore(storeName).openCursor().onsuccess = async e => {
+      const cursor = e.target.result;
+      if (cursor) {
+        const entry = cursor.value;
+        if (entry.syncPending) {
+          try {
             const resp = await fetch(`${API_BASE}/${endpoint}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -55,38 +63,38 @@ async function syncWithBackend() {
               entry.syncPending = false;
               cursor.update(entry);
             }
+          } catch {
+            console.log("Still offline, sync skipped");
           }
-          cursor.continue();
         }
-      };
+        cursor.continue();
+      }
     };
+  };
 
-    await syncStore("savings", "add-saving");
-    await syncStore("payments", "add-payment");
-    console.log("Sync complete");
-  } catch {
-    console.log("Backend offline, sync skipped");
-  }
+  await syncStore("savings", "add-saving");
+  await syncStore("payments", "add-payment");
 }
 
 /* ================================
    Add Saving Entry
    ================================ */
 async function addSaving(date, category, amount) {
-  const monthYear = new Date(date).toLocaleString("default", { month: "long", year: "numeric" });
-  const entry = { date, category, amount, monthYear };
+  const entry = { date, category, amount };
 
   try {
     const resp = await fetch(`${API_BASE}/add-saving`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date, category, amount })
+      body: JSON.stringify(entry)
     });
     console.log("Saving response:", resp.status);
     if (!resp.ok) throw new Error("Backend offline");
   } catch (err) {
     console.error("Saving failed:", err);
-    savings.push(entry);
+    // offline fallback → keep in local memory + IndexedDB
+    const monthYear = new Date(date).toLocaleString("default", { month: "long", year: "numeric" });
+    savings.push({ ...entry, monthYear });
     savingTotal = savings.reduce((sum, s) => sum + s.amount, 0);
     balance += amount;
     saveToIndexedDB("savings", entry);
@@ -106,7 +114,7 @@ async function addPayment(date, category, amount) {
     const resp = await fetch(`${API_BASE}/add-payment`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date, category, amount })
+      body: JSON.stringify(entry)
     });
     console.log("Payment response:", resp.status);
     if (!resp.ok) throw new Error("Backend offline");
@@ -240,7 +248,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  const paymentForm = document.getElementById("paymentForm");
+    const paymentForm = document.getElementById("paymentForm");
   if (paymentForm) {
     paymentForm.addEventListener("submit", e => {
       e.preventDefault();
@@ -257,5 +265,6 @@ document.addEventListener("DOMContentLoaded", () => {
     exportBtn.addEventListener("click", exportExcel);
   }
 
+  // Sync check every 10s (only runs if backend offline)
   setInterval(syncWithBackend, 10000);
 });
