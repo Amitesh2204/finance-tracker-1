@@ -6,7 +6,7 @@ let payments = [];
 let balance = 0;
 let savingTotal = 0;
 
-const API_BASE = "http://127.0.0.1:8000"; // Change to your PC LAN IP for mobile testing, e.g. "http://192.168.1.42:8000"
+const API_BASE ="https://program-detached-radar.ngrok-free.dev"; // Change to your PC LAN IP for mobile testing, e.g. "http://192.168.1.42:8000"
 
 /* ================================
    IndexedDB Setup
