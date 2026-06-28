@@ -70,17 +70,21 @@ async function syncWithBackend() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              date: entry.date,
+              date: entry.date,   // must be YYYY-MM-DD
               category: entry.category,
               amount: entry.amount
             })
           });
+          const result = await resp.json();
+          console.log("POST result:", result);
+
           if (resp.ok) {
             const updateTx = db.transaction(storeName, "readwrite");
             updateTx.objectStore(storeName).put({ ...entry, syncPending: false, id: key });
+            updateTx.oncomplete = () => console.log(`Marked ${storeName} entry synced:`, entry);
           }
-        } catch {
-          console.log(`Failed to sync ${storeName} entry, will retry`);
+        } catch (err) {
+          console.error(`Failed to sync ${storeName} entry:`, err);
         }
       }
       resolve();
