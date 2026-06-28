@@ -47,51 +47,52 @@ async function syncWithBackend() {
   console.log("Backend online, syncing pending entries...");
 
   const syncStore = async (storeName, endpoint) => {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, "readonly");
-    const store = tx.objectStore(storeName);
-    const pending = [];
+  // Step 1: collect pending entries
+    const pending = await new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readonly");
+      const store = tx.objectStore(storeName);
+      const items = [];
 
-    store.openCursor().onsuccess = e => {
-      const cursor = e.target.result;
-      if (cursor) {
-        const entry = cursor.value;
-        if (entry.syncPending) {
-          pending.push({ key: cursor.primaryKey, entry });
-        }
-        cursor.continue();
-      }
-    };
-
-    tx.oncomplete = async () => {
-      for (const { key, entry } of pending) {
-        try {
-          const resp = await fetch(`${API_BASE}/${endpoint}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              date: entry.date,   // ensure YYYY-MM-DD
-              category: entry.category,
-              amount: entry.amount
-            })
-          });
-          const result = await resp.json();
-          console.log("POST result:", result);
-
-          if (resp.ok) {
-            const updateTx = db.transaction(storeName, "readwrite");
-            updateTx.objectStore(storeName).put({ ...entry, syncPending: false, id: key });
-            updateTx.oncomplete = () => console.log(`Marked ${storeName} entry synced:`, entry);
+      store.openCursor().onsuccess = e => {
+        const cursor = e.target.result;
+        if (cursor) {
+          const entry = cursor.value;
+          if (entry.syncPending) {
+            items.push({ key: cursor.primaryKey, entry });
           }
-        } catch (err) {
-          console.error(`Failed to sync ${storeName} entry:`, err);
+          cursor.continue();
         }
-      }
-      resolve();
-    };
+      };
 
-    tx.onerror = reject;
-  });
+      tx.oncomplete = () => resolve(items);
+      tx.onerror = reject;
+    });
+
+    // Step 2: process entries outside the transaction
+    for (const { key, entry } of pending) {
+      try {
+        const resp = await fetch(`${API_BASE}/${endpoint}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            date: entry.date,   // ensure YYYY-MM-DD format
+            category: entry.category,
+            amount: entry.amount
+          })
+        });
+        const result = await resp.json();
+        console.log("POST result:", result);
+
+        if (resp.ok) {
+          // Step 3: mark entry as synced in a new transaction
+          const updateTx = db.transaction(storeName, "readwrite");
+          updateTx.objectStore(storeName).put({ ...entry, syncPending: false, id: key });
+          updateTx.oncomplete = () => console.log(`Marked ${storeName} entry synced:`, entry);
+        }
+      } catch (err) {
+        console.error(`Failed to sync ${storeName} entry:`, err);
+      }
+    }
 };
 
   await syncStore("savings", "add-saving");
