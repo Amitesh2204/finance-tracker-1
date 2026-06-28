@@ -204,6 +204,26 @@ function updateOverview() {
   updateChart();
 }
 
+async function updateOverview() {
+  try {
+    const resp = await fetch(`${API_BASE}/overview`);
+    if (resp.ok) {
+      const data = await resp.json();
+      document.getElementById("balance").textContent = `₹${data.balance}`;
+      document.getElementById("saving").textContent = `₹${data.saving}`;
+    }
+  } catch {
+    // fallback to local memory if backend offline
+    const balanceEl = document.getElementById("balance");
+    const savingEl = document.getElementById("saving");
+    if (balanceEl) balanceEl.textContent = `₹${balance}`;
+    if (savingEl) savingEl.textContent = `₹${savingTotal}`;
+  }
+
+  // keep your existing activity + last transaction logic
+}
+
+
 /* ================================
    Chart.js Financial Statistics
    ================================ */
