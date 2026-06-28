@@ -159,6 +159,19 @@ async function syncWithBackend() {
   // Run both stores sequentially
   await syncStore("savings", "add-saving");
   await syncStore("payments", "add-payment");
+  // expose for console/manual trigger
+  window.syncWithBackend = syncWithBackend;
+
+  // add a small Sync Now button for convenience
+  (function addSyncButton(){
+    if (document.getElementById("manualSyncBtn")) return;
+    const btn = document.createElement("button");
+    btn.id = "manualSyncBtn";
+    btn.textContent = "Sync Now";
+    btn.style.cssText = "position:fixed;right:12px;bottom:60px;padding:6px 10px;background:#0078d4;color:#fff;border-radius:6px;border:none;z-index:9999";
+    btn.onclick = () => { console.log("Manual sync triggered"); syncWithBackend(); };
+    document.body.appendChild(btn);
+  })();
 
   // Refresh UI from backend
   try {
