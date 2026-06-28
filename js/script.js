@@ -1,12 +1,11 @@
 /* ================================
    Global State
    ================================ */
-let savings = [];   // In-memory savings
-let payments = [];  // In-memory payments
+let savings = [];
+let payments = [];
 let balance = 0;
 let savingTotal = 0;
 
-// FastAPI base URL
 const API_BASE = "http://127.0.0.1:8000";
 
 /* ================================
@@ -15,90 +14,55 @@ const API_BASE = "http://127.0.0.1:8000";
 let db;
 const request = indexedDB.open("FinanceTrackerDB", 1);
 
-request.onupgradeneeded = function (event) {
-  db = event.target.result;
+request.onupgradeneeded = e => {
+  db = e.target.result;
   db.createObjectStore("savings", { keyPath: "id", autoIncrement: true });
   db.createObjectStore("payments", { keyPath: "id", autoIncrement: true });
 };
+request.onsuccess = e => { db = e.target.result; console.log("IndexedDB ready"); };
+request.onerror = e => { console.error("IndexedDB error:", e.target.errorCode); };
 
-request.onsuccess = function (event) {
-  db = event.target.result;
-  console.log("IndexedDB ready");
-};
-
-request.onerror = function (event) {
-  console.error("IndexedDB error:", event.target.errorCode);
-};
-
-/* ================================
-   Utility: Save to IndexedDB
-   ================================ */
 function saveToIndexedDB(storeName, entry) {
   const tx = db.transaction(storeName, "readwrite");
-  const store = tx.objectStore(storeName);
-  store.add({ ...entry, syncPending: true });
+  tx.objectStore(storeName).add({ ...entry, syncPending: true });
 }
 
 /* ================================
-   Sync Routine: Push cached entries to FastAPI
+   Sync Routine
    ================================ */
 async function syncWithBackend() {
   try {
     const res = await fetch(`${API_BASE}/ping`);
     if (!res.ok) return;
 
-    // Sync savings
-    const tx1 = db.transaction("savings", "readwrite");
-    const store1 = tx1.objectStore("savings");
-    store1.openCursor().onsuccess = async function (event) {
-      const cursor = event.target.result;
-      if (cursor) {
-        const entry = cursor.value;
-        if (entry.syncPending) {
-          const resp = await fetch(`${API_BASE}/add-saving`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              date: entry.date,
-              category: entry.category,
-              amount: entry.amount
-            })
-          });
-          if (resp.ok) {
-            entry.syncPending = false;
-            cursor.update(entry);
+    const syncStore = async (storeName, endpoint) => {
+      const tx = db.transaction(storeName, "readwrite");
+      tx.objectStore(storeName).openCursor().onsuccess = async e => {
+        const cursor = e.target.result;
+        if (cursor) {
+          const entry = cursor.value;
+          if (entry.syncPending) {
+            const resp = await fetch(`${API_BASE}/${endpoint}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                date: entry.date,
+                category: entry.category,
+                amount: entry.amount
+              })
+            });
+            if (resp.ok) {
+              entry.syncPending = false;
+              cursor.update(entry);
+            }
           }
+          cursor.continue();
         }
-        cursor.continue();
-      }
+      };
     };
 
-    // Sync payments
-    const tx2 = db.transaction("payments", "readwrite");
-    const store2 = tx2.objectStore("payments");
-    store2.openCursor().onsuccess = async function (event) {
-      const cursor = event.target.result;
-      if (cursor) {
-        const entry = cursor.value;
-        if (entry.syncPending) {
-          const resp = await fetch(`${API_BASE}/add-payment`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              date: entry.date,
-              category: entry.category,
-              amount: entry.amount
-            })
-          });
-          if (resp.ok) {
-            entry.syncPending = false;
-            cursor.update(entry);
-          }
-        }
-        cursor.continue();
-      }
-    };
-
+    await syncStore("savings", "add-saving");
+    await syncStore("payments", "add-payment");
     console.log("Sync complete");
   } catch {
     console.log("Backend offline, sync skipped");
@@ -112,23 +76,24 @@ async function addSaving(date, category, amount) {
   const monthYear = new Date(date).toLocaleString("default", { month: "long", year: "numeric" });
   const entry = { date, category, amount, monthYear };
 
-  savings.push(entry);
-  savingTotal = savings.reduce((sum, s) => sum + s.amount, 0);
-  balance += amount;
-
-  updateSavingTable();
-  updateOverview();
-
   try {
     const resp = await fetch(`${API_BASE}/add-saving`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ date, category, amount })
     });
+    console.log("Saving response:", resp.status);
     if (!resp.ok) throw new Error("Backend offline");
-  } catch {
+  } catch (err) {
+    console.error("Saving failed:", err);
+    savings.push(entry);
+    savingTotal = savings.reduce((sum, s) => sum + s.amount, 0);
+    balance += amount;
     saveToIndexedDB("savings", entry);
   }
+
+  updateSavingTable();
+  updateOverview();
 }
 
 /* ================================
@@ -137,21 +102,22 @@ async function addSaving(date, category, amount) {
 async function addPayment(date, category, amount) {
   const entry = { date, category, amount };
 
-  payments.push(entry);
-  balance -= amount;
-
-  updateOverview();
-
   try {
     const resp = await fetch(`${API_BASE}/add-payment`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ date, category, amount })
     });
+    console.log("Payment response:", resp.status);
     if (!resp.ok) throw new Error("Backend offline");
-  } catch {
+  } catch (err) {
+    console.error("Payment failed:", err);
+    payments.push(entry);
+    balance -= amount;
     saveToIndexedDB("payments", entry);
   }
+
+  updateOverview();
 }
 
 /* ================================
@@ -160,28 +126,29 @@ async function addPayment(date, category, amount) {
 function updateSavingTable() {
   const tableBody = document.getElementById("savingTableBody");
   if (!tableBody) return;
-
   tableBody.innerHTML = "";
   savings.forEach(s => {
     const row = document.createElement("tr");
-    row.innerHTML = `
-      <td>${s.date}</td>
-      <td>${s.monthYear}</td>
-      <td>${s.category}</td>
-      <td>₹${s.amount}</td>
-    `;
+    row.innerHTML = `<td>${s.date}</td><td>${s.monthYear}</td><td>${s.category}</td><td>₹${s.amount}</td>`;
     tableBody.appendChild(row);
   });
 }
 
 /* ================================
-   Overview Page Update
+   Overview Page Update (single definition)
    ================================ */
-function updateOverview() {
-  const balanceEl = document.getElementById("balance");
-  const savingEl = document.getElementById("saving");
-  if (balanceEl) balanceEl.textContent = `₹${balance}`;
-  if (savingEl) savingEl.textContent = `₹${savingTotal}`;
+async function updateOverview() {
+  try {
+    const resp = await fetch(`${API_BASE}/overview`);
+    if (resp.ok) {
+      const data = await resp.json();
+      document.getElementById("balance").textContent = `₹${data.balance}`;
+      document.getElementById("saving").textContent = `₹${data.saving}`;
+    }
+  } catch {
+    document.getElementById("balance").textContent = `₹${balance}`;
+    document.getElementById("saving").textContent = `₹${savingTotal}`;
+  }
 
   const activityList = document.getElementById("recentActivity");
   if (activityList) {
@@ -196,58 +163,30 @@ function updateOverview() {
   const lastTxEl = document.getElementById("lastTransaction");
   if (lastTxEl) {
     const last = payments[payments.length - 1];
-    lastTxEl.textContent = last
-      ? `${last.date} - ${last.category}: ₹${last.amount}`
-      : "No transactions yet";
+    lastTxEl.textContent = last ? `${last.date} - ${last.category}: ₹${last.amount}` : "No transactions yet";
   }
 
   updateChart();
 }
 
-async function updateOverview() {
-  try {
-    const resp = await fetch(`${API_BASE}/overview`);
-    if (resp.ok) {
-      const data = await resp.json();
-      document.getElementById("balance").textContent = `₹${data.balance}`;
-      document.getElementById("saving").textContent = `₹${data.saving}`;
-    }
-  } catch {
-    // fallback to local memory if backend offline
-    const balanceEl = document.getElementById("balance");
-    const savingEl = document.getElementById("saving");
-    if (balanceEl) balanceEl.textContent = `₹${balance}`;
-    if (savingEl) savingEl.textContent = `₹${savingTotal}`;
-  }
-
-  // keep your existing activity + last transaction logic
-}
-
-
 /* ================================
-   Chart.js Financial Statistics
+   Chart.js
    ================================ */
 let statsChart;
 function initChart() {
   const ctx = document.getElementById("statsChart");
   if (!ctx) return;
-
   statsChart = new Chart(ctx.getContext("2d"), {
     type: "bar",
-    data: {
-      labels: [],
-      datasets: [
-        { label: "Income", data: [], backgroundColor: "#2ecc71" },
-        { label: "Expenses", data: [], backgroundColor: "#e74c3c" }
-      ]
-    },
+    data: { labels: [], datasets: [
+      { label: "Income", data: [], backgroundColor: "#2ecc71" },
+      { label: "Expenses", data: [], backgroundColor: "#e74c3c" }
+    ]},
     options: { responsive: true, scales: { y: { beginAtZero: true } } }
   });
 }
-
 function updateChart() {
   if (!statsChart) return;
-
   const months = {};
   savings.forEach(s => {
     const m = s.monthYear;
@@ -259,7 +198,6 @@ function updateChart() {
     months[m] = months[m] || { income: 0, expense: 0 };
     months[m].expense += p.amount;
   });
-
   const labels = Object.keys(months).sort();
   statsChart.data.labels = labels;
   statsChart.data.datasets[0].data = labels.map(m => months[m].income);
@@ -303,6 +241,5 @@ document.addEventListener("DOMContentLoaded", () => {
     exportBtn.addEventListener("click", exportExcel);
   }
 
-  // Try syncing cached entries every 10s
   setInterval(syncWithBackend, 10000);
 });
