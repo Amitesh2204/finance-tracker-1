@@ -123,19 +123,34 @@ async function addPayment(date, category, amount) {
 /* ================================
    Update Saving Table
    ================================ */
-function updateSavingTable() {
+async function updateSavingTable() {
   const tableBody = document.getElementById("savingTableBody");
   if (!tableBody) return;
-  tableBody.innerHTML = "";
-  savings.forEach(s => {
-    const row = document.createElement("tr");
-    row.innerHTML = `<td>${s.date}</td><td>${s.monthYear}</td><td>${s.category}</td><td>₹${s.amount}</td>`;
-    tableBody.appendChild(row);
-  });
+
+  try {
+    const resp = await fetch(`${API_BASE}/savings`);
+    if (resp.ok) {
+      const data = await resp.json();
+      tableBody.innerHTML = "";
+      data.forEach(s => {
+        const row = document.createElement("tr");
+        row.innerHTML = `<td>${s.date}</td><td>${s.category}</td><td>₹${s.amount}</td>`;
+        tableBody.appendChild(row);
+      });
+    }
+  } catch {
+    // fallback to local memory
+    tableBody.innerHTML = "";
+    savings.forEach(s => {
+      const row = document.createElement("tr");
+      row.innerHTML = `<td>${s.date}</td><td>${s.monthYear}</td><td>${s.category}</td><td>₹${s.amount}</td>`;
+      tableBody.appendChild(row);
+    });
+  }
 }
 
 /* ================================
-   Overview Page Update (single definition)
+   Overview Page Update
    ================================ */
 async function updateOverview() {
   try {
@@ -211,6 +226,7 @@ function updateChart() {
 document.addEventListener("DOMContentLoaded", () => {
   initChart();
   updateOverview();
+  updateSavingTable();
 
   const savingForm = document.getElementById("savingForm");
   if (savingForm) {
