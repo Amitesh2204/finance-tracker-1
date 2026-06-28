@@ -70,7 +70,7 @@ async function syncWithBackend() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              date: entry.date,   // must be YYYY-MM-DD
+              date: entry.date,   // ensure YYYY-MM-DD
               category: entry.category,
               amount: entry.amount
             })
