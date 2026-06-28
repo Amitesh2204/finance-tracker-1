@@ -47,35 +47,48 @@ async function syncWithBackend() {
   console.log("Backend online, syncing pending entries...");
 
   const syncStore = async (storeName, endpoint) => {
-    const tx = db.transaction(storeName, "readwrite");
-    tx.objectStore(storeName).openCursor().onsuccess = async e => {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readonly");
+    const store = tx.objectStore(storeName);
+    const pending = [];
+
+    store.openCursor().onsuccess = e => {
       const cursor = e.target.result;
       if (cursor) {
         const entry = cursor.value;
         if (entry.syncPending) {
-          try {
-            const resp = await fetch(`${API_BASE}/${endpoint}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                date: entry.date,
-                category: entry.category,
-                amount: entry.amount
-              })
-            });
-            if (resp.ok) {
-              entry.syncPending = false;
-              cursor.update(entry);
-              console.log(`Synced ${storeName} entry:`, entry);
-            }
-          } catch {
-            console.log(`Failed to sync ${storeName} entry, will retry`);
-          }
+          pending.push({ key: cursor.primaryKey, entry });
         }
         cursor.continue();
       }
     };
-  };
+
+    tx.oncomplete = async () => {
+      for (const { key, entry } of pending) {
+        try {
+          const resp = await fetch(`${API_BASE}/${endpoint}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              date: entry.date,
+              category: entry.category,
+              amount: entry.amount
+            })
+          });
+          if (resp.ok) {
+            const updateTx = db.transaction(storeName, "readwrite");
+            updateTx.objectStore(storeName).put({ ...entry, syncPending: false, id: key });
+          }
+        } catch {
+          console.log(`Failed to sync ${storeName} entry, will retry`);
+        }
+      }
+      resolve();
+    };
+
+    tx.onerror = reject;
+  });
+};
 
   await syncStore("savings", "add-saving");
   await syncStore("payments", "add-payment");
