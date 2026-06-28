@@ -1,0 +1,4 @@
+# Ignore backend code
+*.py
+*.db
+venv/

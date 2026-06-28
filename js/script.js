@@ -1,29 +1,161 @@
 /* ================================
    Global State
    ================================ */
-let savings = [];   // Saving entries
-let payments = [];  // Payment entries
+let savings = [];   // In-memory savings
+let payments = [];  // In-memory payments
 let balance = 0;
 let savingTotal = 0;
 
+// FastAPI base URL
+const API_BASE = "http://127.0.0.1:8000";
+
 /* ================================
-   Add Saving Entry (with category list)
+   IndexedDB Setup
    ================================ */
-function addSaving(date, category, amount) {
-  const monthYear = new Date(date).toLocaleString("default", { month: "long", year: "numeric" });
-  savings.push({ date, category, amount, monthYear });
+let db;
+const request = indexedDB.open("FinanceTrackerDB", 1);
 
-  // Update totals
-  savingTotal = savings.reduce((sum, s) => sum + s.amount, 0);
-  balance += amount;
+request.onupgradeneeded = function (event) {
+  db = event.target.result;
+  db.createObjectStore("savings", { keyPath: "id", autoIncrement: true });
+  db.createObjectStore("payments", { keyPath: "id", autoIncrement: true });
+};
 
-  // Update UI
-  updateSavingTable();
-  updateOverview();
+request.onsuccess = function (event) {
+  db = event.target.result;
+  console.log("IndexedDB ready");
+};
+
+request.onerror = function (event) {
+  console.error("IndexedDB error:", event.target.errorCode);
+};
+
+/* ================================
+   Utility: Save to IndexedDB
+   ================================ */
+function saveToIndexedDB(storeName, entry) {
+  const tx = db.transaction(storeName, "readwrite");
+  const store = tx.objectStore(storeName);
+  store.add({ ...entry, syncPending: true });
 }
 
 /* ================================
-   Update Saving Table (month-wise)
+   Sync Routine: Push cached entries to FastAPI
+   ================================ */
+async function syncWithBackend() {
+  try {
+    const res = await fetch(`${API_BASE}/ping`);
+    if (!res.ok) return;
+
+    // Sync savings
+    const tx1 = db.transaction("savings", "readwrite");
+    const store1 = tx1.objectStore("savings");
+    store1.openCursor().onsuccess = async function (event) {
+      const cursor = event.target.result;
+      if (cursor) {
+        const entry = cursor.value;
+        if (entry.syncPending) {
+          const resp = await fetch(`${API_BASE}/add-saving`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              date: entry.date,
+              category: entry.category,
+              amount: entry.amount
+            })
+          });
+          if (resp.ok) {
+            entry.syncPending = false;
+            cursor.update(entry);
+          }
+        }
+        cursor.continue();
+      }
+    };
+
+    // Sync payments
+    const tx2 = db.transaction("payments", "readwrite");
+    const store2 = tx2.objectStore("payments");
+    store2.openCursor().onsuccess = async function (event) {
+      const cursor = event.target.result;
+      if (cursor) {
+        const entry = cursor.value;
+        if (entry.syncPending) {
+          const resp = await fetch(`${API_BASE}/add-payment`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              date: entry.date,
+              category: entry.category,
+              amount: entry.amount
+            })
+          });
+          if (resp.ok) {
+            entry.syncPending = false;
+            cursor.update(entry);
+          }
+        }
+        cursor.continue();
+      }
+    };
+
+    console.log("Sync complete");
+  } catch {
+    console.log("Backend offline, sync skipped");
+  }
+}
+
+/* ================================
+   Add Saving Entry
+   ================================ */
+async function addSaving(date, category, amount) {
+  const monthYear = new Date(date).toLocaleString("default", { month: "long", year: "numeric" });
+  const entry = { date, category, amount, monthYear };
+
+  savings.push(entry);
+  savingTotal = savings.reduce((sum, s) => sum + s.amount, 0);
+  balance += amount;
+
+  updateSavingTable();
+  updateOverview();
+
+  try {
+    const resp = await fetch(`${API_BASE}/add-saving`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date, category, amount })
+    });
+    if (!resp.ok) throw new Error("Backend offline");
+  } catch {
+    saveToIndexedDB("savings", entry);
+  }
+}
+
+/* ================================
+   Add Payment Entry
+   ================================ */
+async function addPayment(date, category, amount) {
+  const entry = { date, category, amount };
+
+  payments.push(entry);
+  balance -= amount;
+
+  updateOverview();
+
+  try {
+    const resp = await fetch(`${API_BASE}/add-payment`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date, category, amount })
+    });
+    if (!resp.ok) throw new Error("Backend offline");
+  } catch {
+    saveToIndexedDB("payments", entry);
+  }
+}
+
+/* ================================
+   Update Saving Table
    ================================ */
 function updateSavingTable() {
   const tableBody = document.getElementById("savingTableBody");
@@ -43,40 +175,6 @@ function updateSavingTable() {
 }
 
 /* ================================
-   Export to Excel (month-wise sheets)
-   ================================ */
-function exportExcel() {
-  const workbook = XLSX.utils.book_new();
-
-  // Group savings by month-year
-  const grouped = {};
-  savings.forEach(s => {
-    grouped[s.monthYear] = grouped[s.monthYear] || [];
-    grouped[s.monthYear].push({
-      Date: s.date,
-      Category: s.category,
-      Amount: s.amount
-    });
-  });
-
-  // Create a worksheet per month-year
-  Object.keys(grouped).forEach(monthYear => {
-    const worksheet = XLSX.utils.json_to_sheet(grouped[monthYear]);
-    XLSX.utils.book_append_sheet(workbook, worksheet, monthYear);
-  });
-
-  // Add payments in a separate sheet
-  const paymentSheet = XLSX.utils.json_to_sheet(payments.map(p => ({
-    Date: p.date,
-    Category: p.category,
-    Amount: p.amount
-  })));
-  XLSX.utils.book_append_sheet(workbook, paymentSheet, "Payments");
-
-  XLSX.writeFile(workbook, "finance-tracker.xlsx");
-}
-
-/* ================================
    Overview Page Update
    ================================ */
 function updateOverview() {
@@ -85,7 +183,6 @@ function updateOverview() {
   if (balanceEl) balanceEl.textContent = `₹${balance}`;
   if (savingEl) savingEl.textContent = `₹${savingTotal}`;
 
-  // Recent Activity (last 5 payments)
   const activityList = document.getElementById("recentActivity");
   if (activityList) {
     activityList.innerHTML = "";
@@ -96,7 +193,6 @@ function updateOverview() {
     });
   }
 
-  // Last Transaction
   const lastTxEl = document.getElementById("lastTransaction");
   if (lastTxEl) {
     const last = payments[payments.length - 1];
@@ -106,15 +202,6 @@ function updateOverview() {
   }
 
   updateChart();
-}
-
-/* ================================
-   Add Payment Entry
-   ================================ */
-function addPayment(date, category, amount) {
-  payments.push({ date, category, amount });
-  balance -= amount;
-  updateOverview();
 }
 
 /* ================================
@@ -167,7 +254,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initChart();
   updateOverview();
 
-  // Saving page form
   const savingForm = document.getElementById("savingForm");
   if (savingForm) {
     savingForm.addEventListener("submit", e => {
@@ -176,12 +262,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const category = document.getElementById("savingCategory").value;
       const amount = parseFloat(document.getElementById("savingAmount").value);
       addSaving(date, category, amount);
-      alert("Saving entry added!");
       savingForm.reset();
     });
   }
 
-  // Payment page form
   const paymentForm = document.getElementById("paymentForm");
   if (paymentForm) {
     paymentForm.addEventListener("submit", e => {
@@ -190,14 +274,15 @@ document.addEventListener("DOMContentLoaded", () => {
       const category = document.getElementById("paymentCategory").value;
       const amount = parseFloat(document.getElementById("paymentAmount").value);
       addPayment(date, category, amount);
-      alert("Payment entry added!");
       paymentForm.reset();
     });
   }
 
-  // Excel export button
   const exportBtn = document.getElementById("exportExcel");
   if (exportBtn) {
     exportBtn.addEventListener("click", exportExcel);
   }
+
+  // Try syncing cached entries every 10s
+  setInterval(syncWithBackend, 10000);
 });
