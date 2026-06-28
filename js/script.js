@@ -31,17 +31,21 @@ function saveToIndexedDB(storeName, entry) {
    Sync Routine (only runs if backend offline)
    ================================ */
 async function syncWithBackend() {
+  let backendOnline = false;
   try {
     const res = await fetch(`${API_BASE}/ping`);
-    if (res.ok) {
-      console.log("Backend online, skipping sync");
-      return;   // exit the whole function
-    }
+    backendOnline = res.ok;
   } catch {
-    console.log("Backend offline, attempting sync");
+    backendOnline = false;
   }
 
-  // only reach here if backend was offline
+  if (!backendOnline) {
+    console.log("Backend offline, skipping sync");
+    return;
+  }
+
+  console.log("Backend online, syncing pending entries...");
+
   const syncStore = async (storeName, endpoint) => {
     const tx = db.transaction(storeName, "readwrite");
     tx.objectStore(storeName).openCursor().onsuccess = async e => {
@@ -62,9 +66,10 @@ async function syncWithBackend() {
             if (resp.ok) {
               entry.syncPending = false;
               cursor.update(entry);
+              console.log(`Synced ${storeName} entry:`, entry);
             }
           } catch {
-            console.log("Still offline, sync skipped");
+            console.log(`Failed to sync ${storeName} entry, will retry`);
           }
         }
         cursor.continue();
